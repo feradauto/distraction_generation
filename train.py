@@ -12,7 +12,7 @@ from configuration import Configuration
 from configuration import CONSTANTS as C
 # Importing the T5 modules from huggingface/transformers
 from transformers import T5Tokenizer, T5ForConditionalGeneration
-
+from nltk.translate.bleu_score import sentence_bleu
 from rich.table import Column, Table
 from rich import box
 from rich.console import Console
@@ -80,7 +80,7 @@ def create_model_dir(experiment_main_dir, experiment_id, model_summary):
     os.makedirs(model_dir)
     return model_dir
 
-def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step):
+def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,records):
 
     """
     Function to be called for training with the parameters passed from main function
@@ -101,7 +101,46 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        writer.add_scalar("loss", float(loss.detach().numpy()), global_step)
+        writer.add_scalar("loss", loss, global_step)
+        
+        
+        ### measure bleu
+        model.eval()
+        predictions = []
+        actuals = []
+
+        generated_ids = model.generate(
+          input_ids = ids,
+          attention_mask = mask, 
+          max_length=150, 
+          num_beams=2,
+          repetition_penalty=2.5, 
+          length_penalty=1.0, 
+          early_stopping=True
+          )
+        preds = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=True) for g in generated_ids]
+        target = [tokenizer.decode(t, skip_special_tokens=True, clean_up_tokenization_spaces=True)for t in y]
+
+        predictions.extend(preds)
+        actuals.extend(target)
+
+        temp_df = pd.DataFrame({'Generated Text':predictions,'Actual Text':actuals})
+
+        val=records.rename(columns={'distractor':'Actual Text'})
+
+        gen_dist=val.merge(temp_df,on=['Actual Text']).loc[:,['text','Generated Text']]
+
+        distractors=val.groupby(['text']).agg({ 'Actual Text': lambda x: list(x)}).reset_index()
+
+        dist_compare=distractors.merge(gen_dist,on=['text'])
+        aa=dist_compare.apply(lambda x:sentence_bleu(x['Actual Text'],x['Generated Text'],weights=(0, 0, 1, 0)),axis=1)
+        dist_compare['bleu']=aa
+        #dist_compare=dist_compare.assign(bleu=dist_compare.apply(lambda x:sentence_bleu(x['Actual Text'],x['Generated Text'],weights=(0, 0, 1, 0)),axis=1))
+        bleu_3=dist_compare.bleu.mean()
+        model.train()
+        writer.add_scalar("bleu3", bleu_3, global_step)
+        
+        
         global_step += 1
     return global_step
 
@@ -142,10 +181,10 @@ def validate(epoch, tokenizer, model, device, loader,writer):
 
 def main(config):
     model_params={
-        "MODEL":"t5-small",             # model_type: t5-base/t5-large
-        "TRAIN_BATCH_SIZE":8,          # training batch size
-        "VALID_BATCH_SIZE":8,          # validation batch size
-        "TRAIN_EPOCHS":3,              # number of training epochs
+        "MODEL":"t5-base",             # model_type: t5-base/t5-large
+        "TRAIN_BATCH_SIZE":1,          # training batch size
+        "VALID_BATCH_SIZE":1,          # validation batch size
+        "TRAIN_EPOCHS":2,              # number of training epochs
         "VAL_EPOCHS":1,                # number of validation epochs
         "LEARNING_RATE":1e-4,          # learning rate
         "MAX_SOURCE_TEXT_LENGTH":1200,  # max length of source text
@@ -240,7 +279,7 @@ def main(config):
     global_step = 0
     writer = SummaryWriter(os.path.join(model_dir, 'logs'))
     for epoch in range(model_params["TRAIN_EPOCHS"]):
-        global_step=train(epoch, tokenizer, model, C.DEVICE, training_loader, optimizer,writer,global_step)
+        global_step=train(epoch, tokenizer, model, C.DEVICE, training_loader, optimizer,writer,global_step,records)
 
     #Saving the model after training
     path = os.path.join(output_dir, "model_files")
@@ -252,7 +291,7 @@ def main(config):
     for epoch in range(model_params["VAL_EPOCHS"]):
         predictions, actuals = validate(epoch, tokenizer, model, C.DEVICE, val_loader,writer)
         final_df = pd.DataFrame({'Generated Text':predictions,'Actual Text':actuals})
-        final_df.to_csv('/cluster/home/fgonzalez/nlp/experiments/predictions.csv')
+        final_df.to_csv(os.path.join(model_dir, 'predictions.csv'),index=False)
 
 
 if __name__ == '__main__':
