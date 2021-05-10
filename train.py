@@ -1,9 +1,8 @@
+# Importing libraries
 import json
 import pandas as pd
-# Importing libraries
 import os
 import numpy as np
-import pandas as pd
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader, RandomSampler, SequentialSampler
@@ -18,7 +17,6 @@ from rich import box
 from rich.console import Console
 from tensorboardX import SummaryWriter
 import time
-# Setting up the device for GPU usage
 from torch import cuda
 
 class YourDataSetClass(Dataset):
@@ -55,14 +53,6 @@ class YourDataSetClass(Dataset):
             'target_ids': target_ids.to(dtype=torch.long),
             'target_ids_y': target_ids.to(dtype=torch.long)
         }
-
-# define a rich console logger
-
-def display_df(df):
-    """display dataframe in ASCII format"""
-    table = Table(Column("source_text", justify="center" ), Column("target_text", justify="center"), title="Sample Data",pad_edge=False, box=box.ASCII)
-    for i, row in enumerate(df.values.tolist()):
-        table.add_row(row[0], row[1])
 
 
 def create_model_dir(experiment_main_dir, experiment_id, model_summary):
@@ -118,8 +108,8 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
           length_penalty=1.0, 
           early_stopping=True
           )
-        preds = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=True) for g in generated_ids]
-        target = [tokenizer.decode(t, skip_special_tokens=True, clean_up_tokenization_spaces=True)for t in y]
+        preds = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in generated_ids]
+        target = [tokenizer.decode(t, skip_special_tokens=True, clean_up_tokenization_spaces=False)for t in y]
 
         predictions.extend(preds)
         actuals.extend(target)
@@ -134,7 +124,7 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
 
         dist_compare=distractors.merge(gen_dist,on=['text'])
         aa=dist_compare.apply(lambda x:sentence_bleu(x['Actual Text'],x['Generated Text'],weights=(0, 0, 1, 0)),axis=1)
-        dist_compare['bleu']=aa
+        dist_compare=dist_compare.assign(bleu=aa)
         #dist_compare=dist_compare.assign(bleu=dist_compare.apply(lambda x:sentence_bleu(x['Actual Text'],x['Generated Text'],weights=(0, 0, 1, 0)),axis=1))
         bleu_3=dist_compare.bleu.mean()
         model.train()
@@ -181,9 +171,9 @@ def validate(epoch, tokenizer, model, device, loader,writer):
 
 def main(config):
     model_params={
-        "MODEL":"t5-base",             # model_type: t5-base/t5-large
-        "TRAIN_BATCH_SIZE":1,          # training batch size
-        "VALID_BATCH_SIZE":1,          # validation batch size
+        "MODEL":"t5-small",             # model_type: t5-base/t5-large
+        "TRAIN_BATCH_SIZE":4,          # training batch size
+        "VALID_BATCH_SIZE":4,          # validation batch size
         "TRAIN_EPOCHS":2,              # number of training epochs
         "VAL_EPOCHS":1,                # number of validation epochs
         "LEARNING_RATE":1e-4,          # learning rate
@@ -197,9 +187,8 @@ def main(config):
     source_text='text'
     target_text='distractor'
     model_params=model_params
-    output_dir="outputs"
 
-    with open('/cluster/home/fgonzalez/nlp/data/distractor/race_dev_updated.json', 'r') as content_file:
+    with open(os.path.join(C.DATA_DIR, "distractor/race_dev_updated.json"), 'r') as content_file:
         content = content_file.read()
     content=content.replace('\n',',')
     content='['+content[:-1]+']'
@@ -220,16 +209,13 @@ def main(config):
     model = T5ForConditionalGeneration.from_pretrained(model_params["MODEL"])
     model = model.to(C.DEVICE)
 
-
+    ## format the input
     records=records.assign(question=records.question.str.join(' '))
     records=records.assign(distractor=records.distractor.str.join(' '))
     records=records.assign(article=records.article.str.join(' '))
     records=records.assign(answer_text=records.answer_text.str.join(' '))
-
     records=records.loc[:,['article','question','answer_text','distractor']]
-
     records=records.assign(text="distraction passage: "+records.article+" question: "+records.question+" answer: "+records.answer_text)
-
     records=records.loc[:,['text','distractor']]
 
     # Creation of Dataset and Dataloader
@@ -268,21 +254,19 @@ def main(config):
 
     # Defining the optimizer that will be used to tune the weights of the network in the training session. 
     optimizer = torch.optim.Adam(params =  model.parameters(), lr=model_params["LEARNING_RATE"])
-
-
-
-    loader=training_loader
+    
+    # Create Tensorboard logger.
     experiment_id = int(time.time())
     experiment_name = "name"
-    model_dir = create_model_dir("/cluster/home/fgonzalez/nlp/experiments/", experiment_id, experiment_name)
-        # Create Tensorboard logger.
+    model_dir = create_model_dir(os.path.join(C.DATA_DIR, "experiments/"), experiment_id, experiment_name)
+        
     global_step = 0
     writer = SummaryWriter(os.path.join(model_dir, 'logs'))
     for epoch in range(model_params["TRAIN_EPOCHS"]):
         global_step=train(epoch, tokenizer, model, C.DEVICE, training_loader, optimizer,writer,global_step,records)
 
     #Saving the model after training
-    path = os.path.join(output_dir, "model_files")
+    path = os.path.join(model_dir, "model_files")
     model.save_pretrained(path)
     tokenizer.save_pretrained(path)
 
