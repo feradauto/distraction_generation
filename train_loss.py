@@ -24,13 +24,15 @@ class YourDataSetClass(Dataset):
     Creating a custom dataset for reading the dataset and 
     loading it into the dataloader to pass it to the neural network for finetuning the model
     """    
-    def __init__(self, dataframe, tokenizer, source_len, target_len, source_text, target_text):
+    def __init__(self, dataframe, tokenizer, source_len, target_len,answer_len, source_text, target_text,answer_text):
         self.tokenizer = tokenizer
         self.data = dataframe
         self.source_len = source_len
         self.summ_len = target_len
+        self.ans_len = answer_len
         self.target_text = self.data[target_text]
         self.source_text = self.data[source_text]
+        self.answer_text = self.data[answer_text]
 
     def __len__(self):
         return len(self.target_text)
@@ -38,20 +40,27 @@ class YourDataSetClass(Dataset):
     def __getitem__(self, index):
         source_text = str(self.source_text[index])
         target_text = str(self.target_text[index])
+        answer_text = str(self.answer_text[index])
         #cleaning data so as to ensure data is in string type
         source_text = ' '.join(source_text.split())
         target_text = ' '.join(target_text.split())
+        answer_text = ' '.join(answer_text.split())
         source = self.tokenizer.batch_encode_plus([source_text], max_length= self.source_len, pad_to_max_length=True, truncation=True, padding="max_length", return_tensors='pt')
         target = self.tokenizer.batch_encode_plus([target_text], max_length= self.summ_len, pad_to_max_length=True, truncation=True, padding="max_length", return_tensors='pt')
+        answer = self.tokenizer.batch_encode_plus([answer_text], max_length= self.ans_len, pad_to_max_length=True, truncation=True, padding="max_length", return_tensors='pt')
         source_ids = source['input_ids'].squeeze()
         source_mask = source['attention_mask'].squeeze()
         target_ids = target['input_ids'].squeeze()
         target_mask = target['attention_mask'].squeeze()
+        answer_ids = answer['input_ids'].squeeze()
+        answer_mask = answer['attention_mask'].squeeze()
         return {
             'source_ids': source_ids.to(dtype=torch.long), 
             'source_mask': source_mask.to(dtype=torch.long), 
             'target_ids': target_ids.to(dtype=torch.long),
-            'target_ids_y': target_ids.to(dtype=torch.long)
+            'target_ids_y': target_ids.to(dtype=torch.long),
+            'answer_ids': answer_ids.to(dtype=torch.long),
+            'answer_mask': answer_mask.to(dtype=torch.long)
         }
 
 
@@ -76,7 +85,6 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
     Function to be called for training with the parameters passed from main function
 
     """
-    checkpoint_file = os.path.join(model_dir, 'model.pth')
     model.train()
     c=0
     for _,data in enumerate(loader, 0):
@@ -88,7 +96,11 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
         ids = data['source_ids'].to(device, dtype = torch.long)
         mask = data['source_mask'].to(device, dtype = torch.long)
         
-        outputs = model(input_ids = ids, attention_mask = mask, decoder_input_ids=y_ids, labels=lm_labels)
+        ans_str = data['answer_ids'].to(device, dtype = torch.long)
+        ans_mask = data['answer_mask'].to(device, dtype = torch.long)
+        
+        outputs = model(input_ids = ids, attention_mask = mask, decoder_input_ids=y_ids,
+                        labels=lm_labels,answer_str=ans_str,answer_mask=ans_mask)
         loss = outputs[0]
 
         optimizer.zero_grad()
@@ -98,7 +110,7 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
         
         
         ### measure bleu
-        if c%10==0:
+        if c%100==0:
             model.eval()
             predictions = []
             actuals = []
@@ -141,7 +153,7 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
         
         
         global_step += 1
-    return (global_step,model)
+    return global_step
 
 
 def validate(epoch, tokenizer, model, device, loader,writer):
@@ -174,7 +186,6 @@ def validate(epoch, tokenizer, model, device, loader,writer):
 
             predictions.extend(preds)
             actuals.extend(target)
-            
         temp_df = pd.DataFrame({'Generated Text':predictions,'Actual Text':actuals})
 
         val=records.rename(columns={'distractor':'Actual Text'})
@@ -190,10 +201,8 @@ def validate(epoch, tokenizer, model, device, loader,writer):
         bleu_2=dist_compare.bleu.mean()
         writer.add_scalar("bleu2_val", bleu_2, 1)
             
-            
-            #writer.add_scalar("loss_validation", float(loss.detach().numpy()), global_step)
-            #global_step += 1
     return predictions, actuals
+
 
 def main(config):
     model_params={
@@ -203,8 +212,9 @@ def main(config):
         "TRAIN_EPOCHS":2,              # number of training epochs
         "VAL_EPOCHS":1,                # number of validation epochs
         "LEARNING_RATE":1e-4,          # learning rate
-        "MAX_SOURCE_TEXT_LENGTH":2000,  # max length of source text
-        "MAX_TARGET_TEXT_LENGTH":200,   # max length of target text
+        "MAX_SOURCE_TEXT_LENGTH":900,  # max length of source text
+        "MAX_TARGET_TEXT_LENGTH":901,   # max length of target text
+        "MAX_ANSWER_LENGTH":900,   # max length of answer text
         "SEED": 42                     # set seed for reproducibility 
 
     }
@@ -212,6 +222,7 @@ def main(config):
 
     source_text='text'
     target_text='distractor'
+    answer_text='answer_text'
     model_params=model_params
 
     with open(os.path.join(C.DATA_DIR, "distractor/race_train_original.json"), 'r') as content_file:
@@ -242,7 +253,7 @@ def main(config):
     records=records.assign(answer_text=records.answer_text.str.join(' '))
     records=records.loc[:,['article','question','answer_text','distractor']]
     records=records.assign(text="dist q: "+records.question+" a: "+records.answer_text+" p: "+records.article)
-    records=records.loc[:,['text','distractor']]
+    records=records.loc[:,['text','distractor','answer_text']]
 
     with open(os.path.join(C.DATA_DIR, "distractor/race_dev_original.json"), 'r') as content_file:
         content = content_file.read()
@@ -258,7 +269,7 @@ def main(config):
     records_test=records_test.assign(answer_text=records_test.answer_text.str.join(' '))
     records_test=records_test.loc[:,['article','question','answer_text','distractor']]
     records_test=records_test.assign(text="dist q: "+records_test.question+" a: "+records_test.answer_text+" p: "+records_test.article)
-    records_test=records_test.loc[:,['text','distractor']]
+    records_test=records_test.loc[:,['text','distractor','answer_text']]
 
     # Creation of Dataset and Dataloader
     # Defining the train size. So 80% of the data will be used for training and the rest for validation. 
@@ -266,10 +277,10 @@ def main(config):
     train_dataset = records
 
 
-
     # Creating the Training and Validation dataset for further creation of Dataloader
-    training_set = YourDataSetClass(train_dataset, tokenizer, model_params["MAX_SOURCE_TEXT_LENGTH"], model_params["MAX_TARGET_TEXT_LENGTH"], source_text, target_text)
-    val_set = YourDataSetClass(val_dataset, tokenizer, model_params["MAX_SOURCE_TEXT_LENGTH"], model_params["MAX_TARGET_TEXT_LENGTH"], source_text, target_text)
+    training_set = YourDataSetClass(train_dataset, tokenizer, model_params["MAX_SOURCE_TEXT_LENGTH"], model_params["MAX_TARGET_TEXT_LENGTH"],model_params["MAX_ANSWER_LENGTH"], source_text, target_text,answer_text)
+    val_set = YourDataSetClass(val_dataset, tokenizer, model_params["MAX_SOURCE_TEXT_LENGTH"], model_params["MAX_TARGET_TEXT_LENGTH"],model_params["MAX_ANSWER_LENGTH"], source_text, target_text,answer_text)
+
 
 
     # Defining the parameters for creation of dataloaders
@@ -303,8 +314,8 @@ def main(config):
     global_step = 0
     writer = SummaryWriter(os.path.join(model_dir, 'logs'))
     for epoch in range(model_params["TRAIN_EPOCHS"]):
-        global_step,model=train(epoch, tokenizer, model, C.DEVICE, training_loader, optimizer,writer,global_step,records,model_dir)
-        print(epoch)
+        global_step=train(epoch, tokenizer, model, C.DEVICE, training_loader, optimizer,writer,global_step,records,model_dir)
+
     #Saving the model after training
     path = os.path.join(model_dir, "model_files")
     model.save_pretrained(path)
