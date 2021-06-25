@@ -10,7 +10,8 @@ import os
 from configuration import Configuration
 from configuration import CONSTANTS as C
 # Importing the T5 modules from huggingface/transformers
-from transformers import T5Tokenizer, T5ForConditionalGeneration
+from transformers import T5Tokenizer
+from model_t5 import T5ForConditionalGeneration
 from nltk.translate.bleu_score import sentence_bleu,SmoothingFunction
 from rich.table import Column, Table
 from rich import box
