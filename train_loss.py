@@ -189,42 +189,65 @@ def validate(epoch, tokenizer, model, device, loader,writer):
     model.eval()
     predictions = []
     actuals = []
+    num_dist=[]
     with torch.no_grad():
         for _, data in enumerate(loader, 0):
             y = data['target_ids'].to(device, dtype = torch.long)
             ids = data['source_ids'].to(device, dtype = torch.long)
             mask = data['source_mask'].to(device, dtype = torch.long)
-
             generated_ids = model.generate(
               input_ids = ids,
               attention_mask = mask, 
               max_length=150, 
-              num_beams=2,
+              num_beams=3,
               repetition_penalty=2.5, 
               length_penalty=1.0, 
-              early_stopping=True
+              early_stopping=True,
+                num_return_sequences=3,
               )
-            preds = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=True) for g in generated_ids]
-            target = [tokenizer.decode(t, skip_special_tokens=True, clean_up_tokenization_spaces=True)for t in y]
-
+            preds = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in generated_ids]
+            target = [tokenizer.decode(t, skip_special_tokens=True, clean_up_tokenization_spaces=False)for t in y]
             predictions.extend(preds)
-            actuals.extend(target)
-        temp_df = pd.DataFrame({'Generated Text':predictions,'Actual Text':actuals})
+            for tt in target:
+                actuals.extend([tt,tt,tt])
+                num_dist.extend([1,2,3])
 
+        temp_df = pd.DataFrame({'Generated Text':predictions,'Actual Text':actuals,'Num distractor':num_dist})
         val=records.rename(columns={'distractor':'Actual Text'})
 
-        gen_dist=val.merge(temp_df,on=['Actual Text']).loc[:,['text','Generated Text']]
+        gen_dist=val.merge(temp_df,on=['Actual Text']).loc[:,['text','Generated Text','Num distractor']]
 
         distractors=val.groupby(['text']).agg({ 'Actual Text': lambda x: list(x.str.split())}).reset_index()
 
         dist_compare=distractors.merge(gen_dist,on=['text'])
         dist_compare['Generated Text']=dist_compare['Generated Text'].str.split()
-        aa=dist_compare.apply(lambda x:sentence_bleu(x['Actual Text'],x['Generated Text'],weights=(0, 1, 0, 0),smoothing_function=SmoothingFunction().method1),axis=1)
-        dist_compare=dist_compare.assign(bleu=aa)
-        bleu_2=dist_compare.bleu.mean()
-        writer.add_scalar("bleu2_val", bleu_2, 1)
+        dist_compare=dist_compare.assign(bleu1=dist_compare.apply(lambda x:sentence_bleu(x['Actual Text'],x['Generated Text'],weights=(1, 0, 0, 0),smoothing_function=SmoothingFunction().method1),axis=1))
+        dist_compare=dist_compare.assign(bleu2=dist_compare.apply(lambda x:sentence_bleu(x['Actual Text'],x['Generated Text'],weights=(0, 1, 0, 0),smoothing_function=SmoothingFunction().method1),axis=1))
+        dist_compare=dist_compare.assign(bleu3=dist_compare.apply(lambda x:sentence_bleu(x['Actual Text'],x['Generated Text'],weights=(0, 0, 1, 0),smoothing_function=SmoothingFunction().method1),axis=1))
+        dist_compare=dist_compare.assign(bleu4=dist_compare.apply(lambda x:sentence_bleu(x['Actual Text'],x['Generated Text'],weights=(0, 0, 0, 1),smoothing_function=SmoothingFunction().method1),axis=1))
+
+        for i in range(1,4):
+            bleu_1=dist_compare.loc[dist_compare['Num distractor']==i].bleu1.mean()
+            bleu_2=dist_compare.loc[dist_compare['Num distractor']==i].bleu2.mean()
+            bleu_3=dist_compare.loc[dist_compare['Num distractor']==i].bleu3.mean()
+            bleu_4=dist_compare.loc[dist_compare['Num distractor']==i].bleu4.mean()
+            writer.add_scalar('val/bleu/distractor_{}/bleu_1'.format(i), bleu_1, global_step)
+            writer.add_scalar('val/bleu/distractor_{}/bleu_2'.format(i), bleu_2, global_step)
+            writer.add_scalar('val/bleu/distractor_{}/bleu_3'.format(i), bleu_3, global_step)
+            writer.add_scalar('val/bleu/distractor_{}/bleu_4'.format(i), bleu_4, global_step)
+
+
+        bleu_1=dist_compare.bleu1.mean()
+        bleu_2=dist_compare.bleu2.mean()
+        bleu_3=dist_compare.bleu3.mean()
+        bleu_4=dist_compare.bleu4.mean()
+        writer.add_scalar("val/bleu/distractor_gen/bleu_1", bleu_1, global_step)
+        writer.add_scalar("val/bleu/distractor_gen/bleu_2", bleu_2, global_step)
+        writer.add_scalar("val/bleu/distractor_gen/bleu_3", bleu_3, global_step)
+        writer.add_scalar("val/bleu/distractor_gen/bleu_4", bleu_4, global_step)
             
     return predictions, actuals
+
 
 
 def main(config):
