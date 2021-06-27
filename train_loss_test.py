@@ -101,9 +101,17 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
         ans_mask = data['answer_mask'].to(device, dtype = torch.long)
         
         outputs = model(input_ids = ids, attention_mask = mask, decoder_input_ids=y_ids,
-                        labels=lm_labels,answer_str=ans_str,answer_mask=ans_mask)
+                        labels=lm_labels,answer_str=ans_str,answer_mask=ans_mask,tokenizer=tokenizer,c=c)
         loss = outputs[0]
 
+        #print("preds",outputs[1])
+        #preds = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in outputs[1]]
+        #print(preds)
+        #print("ans",outputs["ans_ids"])
+        #an = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in outputs[2]]
+        #print(an)
+        
+        
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -232,7 +240,7 @@ def main(config):
         "MODEL":"t5-small",             # model_type: t5-base/t5-large
         "TRAIN_BATCH_SIZE":2,          # training batch size
         "VALID_BATCH_SIZE":2,          # validation batch size
-        "TRAIN_EPOCHS":2,              # number of training epochs
+        "TRAIN_EPOCHS":5,              # number of training epochs
         "VAL_EPOCHS":1,                # number of validation epochs
         "LEARNING_RATE":1e-4,          # learning rate
         "MAX_SOURCE_TEXT_LENGTH":900,  # max length of source text
