@@ -1682,8 +1682,9 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
             loss_fct = CrossEntropyLoss(ignore_index=-100)
             cos_loss=nn.CosineEmbeddingLoss()
             cos_term=cos_loss(encoder_outputs1.last_hidden_state,encoder_outputs2.last_hidden_state,torch.Tensor(512).fill_(-1.0).cuda())+1
-            cos_term_sim=cos_loss(encoder_outputs.last_hidden_state,encoder_outputs2.last_hidden_state,torch.Tensor(512).fill_(1.0).cuda())           #cos_term=cos_loss(encoder_outputs1.last_hidden_state,encoder_outputs2.last_hidden_state,torch.Tensor(512).fill_(-1.0))+1
-             #cos_term_sim=cos_loss(encoder_outputs.last_hidden_state,encoder_outputs2.last_hidden_state,torch.Tensor(512).fill_(1.0))  
+            cos_term_sim=cos_loss(encoder_outputs.last_hidden_state,encoder_outputs2.last_hidden_state,torch.Tensor(512).fill_(1.0).cuda())           
+            #cos_term=cos_loss(encoder_outputs1.last_hidden_state,encoder_outputs2.last_hidden_state,torch.Tensor(512).fill_(-1.0))+1
+            #cos_term_sim=cos_loss(encoder_outputs.last_hidden_state,encoder_outputs2.last_hidden_state,torch.Tensor(512).fill_(1.0))  
             loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
             loss= loss+(param*cos_term)
             if cos_term>1.3 or cos_term_sim>0.7:

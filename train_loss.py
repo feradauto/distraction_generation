@@ -361,6 +361,7 @@ def main(config):
     writer = SummaryWriter(os.path.join(model_dir, 'logs'))
     for epoch in range(model_params["TRAIN_EPOCHS"]):
         global_step=train(epoch, tokenizer, model, C.DEVICE, training_loader, optimizer,writer,global_step,records,model_dir)
+        print("epoch",epoch)
 
     #Saving the model after training
     path = os.path.join(model_dir, "model_files")

@@ -18,6 +18,7 @@ from rich import box
 from rich.console import Console
 from tensorboardX import SummaryWriter
 import time
+import utils.utils as U
 from torch import cuda
 
 class YourDataSetClass(Dataset):
@@ -89,6 +90,7 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
     model.train()
     c=0
     for _,data in enumerate(loader, 0):
+        print("mem",torch.cuda.memory_allocated(device=C.DEVICE))
         c=c+1
         y = data['target_ids'].to(device, dtype = torch.long)
         y_ids = y[:, :-1].contiguous()
@@ -364,10 +366,22 @@ def main(config):
     experiment_name = "name"
     model_dir = create_model_dir(os.path.join(C.DATA_DIR, "experiments/"), experiment_id, experiment_name)
         
+    ## save code
+    code_files = glob.glob('./*.py', recursive=False)
+    U.export_code(code_files, os.path.join(model_dir, 'code.zip'))
+    config.to_json(os.path.join(model_dir, 'config.json'))
+
+    # Save the command line that was used.
+    cmd = sys.argv[0] + ' ' + ' '.join(sys.argv[1:])
+    with open(os.path.join(model_dir, 'cmd.txt'), 'w') as f:
+        f.write(cmd)
+        
     global_step = 0
     writer = SummaryWriter(os.path.join(model_dir, 'logs'))
+    print("mem1",torch.cuda.memory_allocated(device=C.DEVICE))
     for epoch in range(model_params["TRAIN_EPOCHS"]):
         global_step=train(epoch, tokenizer, model, C.DEVICE, training_loader, optimizer,writer,global_step,records,model_dir)
+        print("epoch",epoch)
 
     #Saving the model after training
     path = os.path.join(model_dir, "model_files")
