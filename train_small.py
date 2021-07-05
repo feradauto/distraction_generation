@@ -1,16 +1,17 @@
 # Importing libraries
 import json
 import pandas as pd
-import os
+import glob
+import sys
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader, RandomSampler, SequentialSampler
+import os
 from configuration import Configuration
 from configuration import CONSTANTS as C
 # Importing the T5 modules from huggingface/transformers
-from transformers import T5Tokenizer
-from models.model_t5 import T5ForConditionalGeneration
+from transformers import T5Tokenizer,T5ForConditionalGeneration
 from nltk.translate.bleu_score import sentence_bleu,SmoothingFunction
 from rich.table import Column, Table
 from rich import box
@@ -19,8 +20,8 @@ from tensorboardX import SummaryWriter
 import time
 import utils.utils as U
 from torch import cuda
-import glob
-import sys
+import gc
+
 
 class YourDataSetClass(Dataset):
     """
@@ -82,7 +83,7 @@ def create_model_dir(experiment_main_dir, experiment_id, model_summary):
     os.makedirs(model_dir)
     return model_dir
 
-def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,records,model_dir,model_params):
+def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,records,model_dir):
 
     """
     Function to be called for training with the parameters passed from main function
@@ -91,6 +92,8 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
     model.train()
     c=0
     for _,data in enumerate(loader, 0):
+        print("mem",torch.cuda.memory_allocated(device=C.DEVICE))
+        torch.cuda.empty_cache()
         print("mem",torch.cuda.memory_allocated(device=C.DEVICE))
         c=c+1
         y = data['target_ids'].to(device, dtype = torch.long)
@@ -104,7 +107,7 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
         ans_mask = data['answer_mask'].to(device, dtype = torch.long)
         
         outputs = model(input_ids = ids, attention_mask = mask, decoder_input_ids=y_ids,
-                        labels=lm_labels,answer_str=ans_str,answer_mask=ans_mask,tokenizer=tokenizer,c=c,param=model_params['LAMBDA'])
+                        labels=lm_labels)
         loss = outputs[0]
 
         #print("preds",outputs[1])
@@ -127,7 +130,6 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
             predictions = []
             actuals = []
             num_dist=[]
-            ## generate 3 distractors
             generated_ids = model.generate(
               input_ids = ids,
               attention_mask = mask, 
@@ -154,7 +156,6 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
 
             dist_compare=distractors.merge(gen_dist,on=['text'])
             dist_compare['Generated Text']=dist_compare['Generated Text'].str.split()
-            ## compute bleu scores
             dist_compare=dist_compare.assign(bleu1=dist_compare.apply(lambda x:sentence_bleu(x['Actual Text'],x['Generated Text'],weights=(1, 0, 0, 0),smoothing_function=SmoothingFunction().method1),axis=1))
             dist_compare=dist_compare.assign(bleu2=dist_compare.apply(lambda x:sentence_bleu(x['Actual Text'],x['Generated Text'],weights=(0, 1, 0, 0),smoothing_function=SmoothingFunction().method1),axis=1))
             dist_compare=dist_compare.assign(bleu3=dist_compare.apply(lambda x:sentence_bleu(x['Actual Text'],x['Generated Text'],weights=(0, 0, 1, 0),smoothing_function=SmoothingFunction().method1),axis=1))
@@ -192,7 +193,7 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
     return global_step
 
 
-def validate(epoch, tokenizer, model, device, loader,writer,records_test):
+def validate(epoch, tokenizer, model, device, loader,writer):
 
     """
     Function to evaluate model for predictions
@@ -208,7 +209,6 @@ def validate(epoch, tokenizer, model, device, loader,writer,records_test):
             y = data['target_ids'].to(device, dtype = torch.long)
             ids = data['source_ids'].to(device, dtype = torch.long)
             mask = data['source_mask'].to(device, dtype = torch.long)
-            ## generate distractors
             generated_ids = model.generate(
               input_ids = ids,
               attention_mask = mask, 
@@ -227,16 +227,14 @@ def validate(epoch, tokenizer, model, device, loader,writer,records_test):
                 num_dist.extend([1,2,3])
 
         temp_df = pd.DataFrame({'Generated Text':predictions,'Actual Text':actuals,'Num distractor':num_dist})
-        val=records_test.rename(columns={'distractor':'Actual Text'})
+        val=records.rename(columns={'distractor':'Actual Text'})
 
         gen_dist=val.merge(temp_df,on=['Actual Text']).loc[:,['text','Generated Text','Num distractor']]
 
         distractors=val.groupby(['text']).agg({ 'Actual Text': lambda x: list(x.str.split())}).reset_index()
 
         dist_compare=distractors.merge(gen_dist,on=['text'])
-        dist_compare=dist_compare.drop_duplicates()
         dist_compare['Generated Text']=dist_compare['Generated Text'].str.split()
-        ## compute bleu scores
         dist_compare=dist_compare.assign(bleu1=dist_compare.apply(lambda x:sentence_bleu(x['Actual Text'],x['Generated Text'],weights=(1, 0, 0, 0),smoothing_function=SmoothingFunction().method1),axis=1))
         dist_compare=dist_compare.assign(bleu2=dist_compare.apply(lambda x:sentence_bleu(x['Actual Text'],x['Generated Text'],weights=(0, 1, 0, 0),smoothing_function=SmoothingFunction().method1),axis=1))
         dist_compare=dist_compare.assign(bleu3=dist_compare.apply(lambda x:sentence_bleu(x['Actual Text'],x['Generated Text'],weights=(0, 0, 1, 0),smoothing_function=SmoothingFunction().method1),axis=1))
@@ -271,7 +269,7 @@ def main(config):
         "MODEL":"t5-small",             # model_type: t5-base/t5-large
         "TRAIN_BATCH_SIZE":2,          # training batch size
         "VALID_BATCH_SIZE":2,          # validation batch size
-        "TRAIN_EPOCHS":10,              # number of training epochs
+        "TRAIN_EPOCHS":2,              # number of training epochs
         "VAL_EPOCHS":1,                # number of validation epochs
         "LEARNING_RATE":1e-4,          # learning rate
         "MAX_SOURCE_TEXT_LENGTH":900,  # max length of source text
@@ -281,13 +279,16 @@ def main(config):
 
     }
     '''
-    model_params=vars(config)
-    
+    model_params=config
+
+    gc.collect()
+
+
     source_text='text'
     target_text='distractor'
     answer_text='answer_text'
     model_params=model_params
-
+    
     with open(os.path.join(C.DATA_DIR, "distractor/race_train_original.json"), 'r') as content_file:
         content = content_file.read()
     content=content.replace('\n',',')
@@ -334,7 +335,6 @@ def main(config):
     records_test=records_test.assign(text="dist q: "+records_test.question+" a: "+records_test.answer_text+" p: "+records_test.article)
     records_test=records_test.loc[:,['text','distractor','answer_text']]
     records_test=records_test.loc[:,['text','answer_text']].drop_duplicates()
-    records_test=records_test.assign(distractor='')
     # Creation of Dataset and Dataloader
     # Defining the train size. So 80% of the data will be used for training and the rest for validation. 
     val_dataset=records_test
@@ -389,9 +389,9 @@ def main(config):
     writer = SummaryWriter(os.path.join(model_dir, 'logs'))
     print("mem1",torch.cuda.memory_allocated(device=C.DEVICE))
     for epoch in range(model_params["TRAIN_EPOCHS"]):
-        global_step=train(epoch, tokenizer, model, C.DEVICE, training_loader, optimizer,writer,global_step,records,model_dir,model_params)
+        global_step=train(epoch, tokenizer, model, C.DEVICE, training_loader, optimizer,writer,global_step,records,model_dir)
         print("epoch",epoch)
-
+        
     #Saving the model after training
     path = os.path.join(model_dir, "model_files")
     model.save_pretrained(path)
@@ -400,7 +400,7 @@ def main(config):
 
     # evaluating test dataset
     for epoch in range(model_params["VAL_EPOCHS"]):
-        predictions, actuals = validate(epoch, tokenizer, model, C.DEVICE, val_loader,writer,records_test)
+        predictions, actuals = validate(epoch, tokenizer, model, C.DEVICE, val_loader,writer)
         final_df = pd.DataFrame({'Generated Text':predictions,'Actual Text':actuals})
         final_df.to_csv(os.path.join(model_dir, 'predictions.csv'),index=False)
 

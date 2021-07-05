@@ -193,7 +193,7 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
     return global_step
 
 
-def validate(epoch, tokenizer, model, device, loader,writer):
+def validate(epoch, tokenizer, model, device, loader,writer,records_test):
 
     """
     Function to evaluate model for predictions
@@ -227,7 +227,7 @@ def validate(epoch, tokenizer, model, device, loader,writer):
                 num_dist.extend([1,2,3])
 
         temp_df = pd.DataFrame({'Generated Text':predictions,'Actual Text':actuals,'Num distractor':num_dist})
-        val=records.rename(columns={'distractor':'Actual Text'})
+        val=records_test.rename(columns={'distractor':'Actual Text'})
 
         gen_dist=val.merge(temp_df,on=['Actual Text']).loc[:,['text','Generated Text','Num distractor']]
 
@@ -264,6 +264,7 @@ def validate(epoch, tokenizer, model, device, loader,writer):
 
 
 def main(config):
+    '''
     model_params={
         "MODEL":"t5-base",             # model_type: t5-base/t5-large
         "TRAIN_BATCH_SIZE":2,          # training batch size
@@ -277,7 +278,8 @@ def main(config):
         "SEED": 42                     # set seed for reproducibility 
 
     }
-
+    '''
+    model_params=config
     gc.collect()
 
 
@@ -331,7 +333,7 @@ def main(config):
     records_test=records_test.loc[:,['article','question','answer_text','distractor']]
     records_test=records_test.assign(text="dist q: "+records_test.question+" a: "+records_test.answer_text+" p: "+records_test.article)
     records_test=records_test.loc[:,['text','distractor','answer_text']]
-
+    records_test=records_test.loc[:,['text','answer_text']].drop_duplicates()
     # Creation of Dataset and Dataloader
     # Defining the train size. So 80% of the data will be used for training and the rest for validation. 
     val_dataset=records_test
@@ -397,7 +399,7 @@ def main(config):
 
     # evaluating test dataset
     for epoch in range(model_params["VAL_EPOCHS"]):
-        predictions, actuals = validate(epoch, tokenizer, model, C.DEVICE, val_loader,writer)
+        predictions, actuals = validate(epoch, tokenizer, model, C.DEVICE, val_loader,writer,records_test)
         final_df = pd.DataFrame({'Generated Text':predictions,'Actual Text':actuals})
         final_df.to_csv(os.path.join(model_dir, 'predictions.csv'),index=False)
 
