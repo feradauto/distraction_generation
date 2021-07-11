@@ -146,10 +146,11 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
                 num_dist.extend([1,2,3])
 
             temp_df = pd.DataFrame({'Generated Text':predictions,'Actual Text':actuals,'Num distractor':num_dist})
+            temp_df=temp_df.drop_duplicates()
             val=records.rename(columns={'distractor':'Actual Text'})
 
             gen_dist=val.merge(temp_df,on=['Actual Text']).loc[:,['text','Generated Text','Num distractor']]
-
+            gen_dist=gen_dist.drop_duplicates()
             distractors=val.groupby(['text']).agg({ 'Actual Text': lambda x: list(x.str.split())}).reset_index()
 
             dist_compare=distractors.merge(gen_dist,on=['text'])
@@ -227,10 +228,11 @@ def validate(epoch, tokenizer, model, device, loader,writer,records_test):
                 num_dist.extend([1,2,3])
 
         temp_df = pd.DataFrame({'Generated Text':predictions,'Actual Text':actuals,'Num distractor':num_dist})
+        temp_df=temp_df.drop_duplicates()
         val=records_test.rename(columns={'distractor':'Actual Text'})
-
+        
         gen_dist=val.merge(temp_df,on=['Actual Text']).loc[:,['text','Generated Text','Num distractor']]
-
+        gen_dist=gen_dist.drop_duplicates()
         distractors=val.groupby(['text']).agg({ 'Actual Text': lambda x: list(x.str.split())}).reset_index()
 
         dist_compare=distractors.merge(gen_dist,on=['text'])
@@ -333,8 +335,8 @@ def main(config):
     records_test=records_test.loc[:,['article','question','answer_text','distractor']]
     records_test=records_test.assign(text="dist q: "+records_test.question+" a: "+records_test.answer_text+" p: "+records_test.article)
     records_test=records_test.loc[:,['text','distractor','answer_text']]
-    records_test=records_test.loc[:,['text','answer_text']].drop_duplicates()
-    records_test=records_test.assign(distractor='')
+    #records_test=records_test.loc[:,['text','answer_text']].drop_duplicates()
+    #records_test=records_test.assign(distractor='')
     # Creation of Dataset and Dataloader
     # Defining the train size. So 80% of the data will be used for training and the rest for validation. 
     val_dataset=records_test

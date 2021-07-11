@@ -1665,21 +1665,21 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
 
             loss_fct = CrossEntropyLoss(ignore_index=-100)
             cos_loss=nn.CosineEmbeddingLoss()
-            cos_term=cos_loss(encoder_outputs1.last_hidden_state,encoder_outputs2.last_hidden_state,torch.Tensor(512).fill_(-1.0).cuda())+1
+            #cos_term=cos_loss(encoder_outputs1.last_hidden_state,encoder_outputs2.last_hidden_state,torch.Tensor(512).fill_(-1.0).cuda())+1
             cos_term_sim=cos_loss(encoder_outputs.last_hidden_state,encoder_outputs2.last_hidden_state,torch.Tensor(512).fill_(1.0).cuda())           
             #cos_term=cos_loss(encoder_outputs1.last_hidden_state,encoder_outputs2.last_hidden_state,torch.Tensor(512).fill_(-1.0))+1
             #cos_term_sim=cos_loss(encoder_outputs.last_hidden_state,encoder_outputs2.last_hidden_state,torch.Tensor(512).fill_(1.0))  
             loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
-            loss= (1-param)*loss + ((param)*(cos_term))
-            if cos_term>1.3 or cos_term_sim>0.7:
-                print("cos_term",cos_term)
-                print("cos_term_sim",cos_term_sim)
-                print("ans",answer_str)
-                an = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in answer_str]
-                print(an)
-                print("preds",next_token)
-                preds = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in next_token]
-                print(preds)
+            loss= (1-param)*loss + ((param)*(cos_term_sim))  
+            #if cos_term>1.3 or cos_term_sim>0.7:
+            #    print("cos_term",cos_term)
+            #    print("cos_term_sim",cos_term_sim)
+            #    print("ans",answer_str)
+            #    an = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in answer_str]
+            #    print(an)
+            #    print("preds",next_token)
+            #    preds = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in next_token]
+            #    print(preds)
 
             #loss_fct = CrossEntropyLoss(ignore_index=-100)
             #loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))

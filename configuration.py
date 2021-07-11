@@ -50,16 +50,17 @@ class Configuration(object):
         
         #####
         parser.add_argument('--MODEL', type=str, default='t5-small')
-        parser.add_argument('--TRAIN_BATCH_SIZE', type=float, default=2)
-        parser.add_argument('--VALID_BATCH_SIZE', type=float, default=2)
-        parser.add_argument('--TRAIN_EPOCHS', type=float, default=2)
-        parser.add_argument('--VAL_EPOCHS', type=float, default=1)
+        parser.add_argument('--TRAIN_BATCH_SIZE', type=int, default=2)
+        parser.add_argument('--VALID_BATCH_SIZE', type=int, default=2)
+        parser.add_argument('--TRAIN_EPOCHS', type=int, default=2)
+        parser.add_argument('--VAL_EPOCHS', type=int, default=1)
         parser.add_argument('--LEARNING_RATE', type=float, default=1e-4)
         parser.add_argument('--MAX_SOURCE_TEXT_LENGTH', type=float, default=900)
         parser.add_argument('--MAX_TARGET_TEXT_LENGTH', type=float, default=901)
         parser.add_argument('--MAX_ANSWER_LENGTH', type=float, default=900)
         parser.add_argument('--SEED', type=float, default=42)
         parser.add_argument('--LAMBDA', type=float, default=0.1)
+        parser.add_argument('--MODEL_ID', type=int, default=0)
         
         config, unknown = parser.parse_known_args()
         #config = parser.parse_args()
