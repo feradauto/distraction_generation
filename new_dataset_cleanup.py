@@ -47,8 +47,10 @@ For the purpose of structure:
         return input_list[:idx] + input_list[idx+1:]
 
     f_name = "RACE_"+os.path.basename(parent_dir_path) + "_new.json"
+    f_namecsv = "RACE_"+os.path.basename(parent_dir_path) + "_new.csv"
+    distractors_list=[]
     with open(f_name, 'w') as f_out:
-        f_out.write('[')
+        #f_out.write('[')
         for sample in Path(parent_dir_path).rglob("*.txt"):
                 with open(sample, 'r') as f:
                     sample_content = f.read()
@@ -59,22 +61,26 @@ For the purpose of structure:
                         distractors = remove_elem_from_list_by_id(sample_dict["options"][i], answer_idx)
                         for j in range(len(distractors)):
                             one_distractor_dict = {}
-                            one_distractor_dict["article"] = sample_dict["article"].replace(" ", ",")
-                            one_distractor_dict["question"] = sample_dict["questions"][i].replace(" ", ",")
-                            one_distractor_dict["answer_text"] = sample_dict["options"][i][answer_idx].replace(" ", ",")
-                            one_distractor_dict["distractor"] = distractors[j].replace(" ", ",")
-                            
+                            one_distractor_dict["article"] = sample_dict["article"]
+                            one_distractor_dict["question"] = sample_dict["questions"][i]
+                            one_distractor_dict["answer_text"] = sample_dict["options"][i][answer_idx]
+                            one_distractor_dict["distractor"] = distractors[j]
+                            distractors_list.append(one_distractor_dict)
+                
                             f_out.write(json.dumps(one_distractor_dict))
                             f_out.write(',\n')
-        f_out.write(']')
+        #f_out.write(']')
         f_out.close()
+    df = pd.DataFrame(distractors_list)
+    df.to_csv(f_namecsv,index=False)
+    return df
 
 
 
 def main():
-    cmu_conversion_format("RACE/dev")
-    cmu_conversion_format("RACE/test")
-    cmu_conversion_format("RACE/train")
+    cmu_conversion_format("/cluster/home/fgonzalez/datagen/RACE/dev")
+    cmu_conversion_format("/cluster/home/fgonzalez/datagen/RACE/test")
+    cmu_conversion_format("/cluster/home/fgonzalez/datagen/RACE/train")
 
 if __name__ == "__main__":
     main()
