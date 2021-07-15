@@ -1612,46 +1612,16 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
         
         next_token=None
         if labels is not None:
-
+        ## Here we pass the answer through the encoder to get the last hidden state
             encoder_outputs1 = self.encoder(
                 input_ids=answer_str,
                 attention_mask=answer_mask,
                 head_mask=head_mask,
                 return_dict=return_dict,
                 )
-            #print(lm_logits.shape)
             last_token_softmax = torch.log_softmax(lm_logits, dim=-1).squeeze()
             next_token = torch.argmax(last_token_softmax,dim=-1)
             
-            
-            #print(lm_logits)
-            #print(lm_logits.shape)
-            #print(last_token_softmax)
-            #print(last_token_softmax.shape)
-            
-            #print("ans",answer_str)
-            #an = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in answer_str]
-            #print(an)
-            #if c>1500:
-            #if 0 in next_token:
-            #print("preds",next_token)
-            #preds = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in next_token]
-            #print(preds)
-            #print(next_token.shape)
-            '''
-            generated_ids=self.decoder.generate(
-              input_ids = decoder_input_ids,
-              attention_mask = decoder_attention_mask, 
-              max_length=150, 
-              num_beams=2,
-              repetition_penalty=2.5, 
-              length_penalty=1.0, 
-              early_stopping=True
-              )
-            print("gen_ids",generated_ids)
-            pred_gen = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in generated_ids]
-            print(pred_gen)
-            '''
             
             encoder_outputs2 = self.encoder(
                 input_ids=next_token,
@@ -1659,30 +1629,16 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
                 head_mask=head_mask,
                 return_dict=return_dict,
                 )
-            #print(encoder_outputs1.last_hidden_state)
-            #print(encoder_outputs1.last_hidden_state.shape)
-            #print(encoder_outputs2.last_hidden_state.shape)
 
             loss_fct = CrossEntropyLoss(ignore_index=-100)
+            ## compute the cosine similarity 
             cos_loss=nn.CosineEmbeddingLoss()
-            #cos_term=cos_loss(encoder_outputs1.last_hidden_state,encoder_outputs2.last_hidden_state,torch.Tensor(512).fill_(-1.0).cuda())+1
-            cos_term_sim=cos_loss(encoder_outputs.last_hidden_state,encoder_outputs2.last_hidden_state,torch.Tensor(512).fill_(1.0).cuda())           
-            #cos_term=cos_loss(encoder_outputs1.last_hidden_state,encoder_outputs2.last_hidden_state,torch.Tensor(512).fill_(-1.0))+1
-            #cos_term_sim=cos_loss(encoder_outputs.last_hidden_state,encoder_outputs2.last_hidden_state,torch.Tensor(512).fill_(1.0))  
+            cos_term=cos_loss(encoder_outputs1.last_hidden_state,encoder_outputs2.last_hidden_state,torch.Tensor(512).fill_(-1.0).cuda())+1
+            
             loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
-            loss= (1-param)*loss + ((param)*(cos_term_sim))  
-            #if cos_term>1.3 or cos_term_sim>0.7:
-            #    print("cos_term",cos_term)
-            #    print("cos_term_sim",cos_term_sim)
-            #    print("ans",answer_str)
-            #    an = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in answer_str]
-            #    print(an)
-            #    print("preds",next_token)
-            #    preds = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in next_token]
-            #    print(preds)
+            ## convex combination
+            loss= (1-param)*loss + ((param)*(cos_term))  
 
-            #loss_fct = CrossEntropyLoss(ignore_index=-100)
-            #loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
             # TODO(thom): Add z_loss https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/layers.py#L666
         
         if not return_dict:

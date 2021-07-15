@@ -91,7 +91,6 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
     model.train()
     c=0
     for _,data in enumerate(loader, 0):
-        print("mem",torch.cuda.memory_allocated(device=C.DEVICE))
         c=c+1
         y = data['target_ids'].to(device, dtype = torch.long)
         y_ids = y[:, :-1].contiguous()
@@ -106,13 +105,6 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
         outputs = model(input_ids = ids, attention_mask = mask, decoder_input_ids=y_ids,
                         labels=lm_labels,answer_str=ans_str,answer_mask=ans_mask,tokenizer=tokenizer,c=c,param=model_params['LAMBDA'])
         loss = outputs[0]
-
-        #print("preds",outputs[1])
-        #preds = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in outputs[1]]
-        #print(preds)
-        #print("ans",outputs["ans_ids"])
-        #an = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in outputs[2]]
-        #print(an)
         
         
         optimizer.zero_grad()
@@ -264,7 +256,7 @@ def validate(epoch, tokenizer, model, device, loader,writer,records_test):
         writer.add_scalar("val/bleu/distractor_gen/bleu_3", bleu_3, global_step)
         writer.add_scalar("val/bleu/distractor_gen/bleu_4", bleu_4, global_step)
             
-    return predictions, actuals
+    return dist_compare
 
 
 def main(config):
@@ -327,6 +319,8 @@ def main(config):
     records_test = json.loads(content)
     records_test=pd.DataFrame(records_test)
 
+    
+    
     ## format the input
     records_test=records_test.assign(question=records_test.question.str.join(' '))
     records_test=records_test.assign(distractor=records_test.distractor.str.join(' '))
@@ -335,10 +329,8 @@ def main(config):
     records_test=records_test.loc[:,['article','question','answer_text','distractor']]
     records_test=records_test.assign(text="dist q: "+records_test.question+" a: "+records_test.answer_text+" p: "+records_test.article)
     records_test=records_test.loc[:,['text','distractor','answer_text']]
-    #records_test=records_test.loc[:,['text','answer_text']].drop_duplicates()
-    #records_test=records_test.assign(distractor='')
+
     # Creation of Dataset and Dataloader
-    # Defining the train size. So 80% of the data will be used for training and the rest for validation. 
     val_dataset=records_test
     train_dataset = records
 
@@ -389,7 +381,7 @@ def main(config):
         
     global_step = 0
     writer = SummaryWriter(os.path.join(model_dir, 'logs'))
-    print("mem1",torch.cuda.memory_allocated(device=C.DEVICE))
+    
     for epoch in range(model_params["TRAIN_EPOCHS"]):
         global_step=train(epoch, tokenizer, model, C.DEVICE, training_loader, optimizer,writer,global_step,records,model_dir,model_params)
         print("epoch",epoch)
@@ -402,8 +394,7 @@ def main(config):
 
     # evaluating test dataset
     for epoch in range(model_params["VAL_EPOCHS"]):
-        predictions, actuals = validate(epoch, tokenizer, model, C.DEVICE, val_loader,writer,records_test)
-        final_df = pd.DataFrame({'Generated Text':predictions,'Actual Text':actuals})
+        final_df = validate(epoch, tokenizer, model, C.DEVICE, val_loader,writer,records_test)
         final_df.to_csv(os.path.join(model_dir, 'predictions.csv'),index=False)
 
 

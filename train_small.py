@@ -92,9 +92,7 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
     model.train()
     c=0
     for _,data in enumerate(loader, 0):
-        print("mem",torch.cuda.memory_allocated(device=C.DEVICE))
         torch.cuda.empty_cache()
-        print("mem",torch.cuda.memory_allocated(device=C.DEVICE))
         c=c+1
         y = data['target_ids'].to(device, dtype = torch.long)
         y_ids = y[:, :-1].contiguous()
@@ -110,12 +108,6 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
                         labels=lm_labels)
         loss = outputs[0]
 
-        #print("preds",outputs[1])
-        #preds = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in outputs[1]]
-        #print(preds)
-        #print("ans",outputs["ans_ids"])
-        #an = [tokenizer.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in outputs[2]]
-        #print(an)
         
         
         optimizer.zero_grad()
@@ -148,10 +140,11 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
                 num_dist.extend([1,2,3])
 
             temp_df = pd.DataFrame({'Generated Text':predictions,'Actual Text':actuals,'Num distractor':num_dist})
+            temp_df=temp_df.drop_duplicates()
             val=records.rename(columns={'distractor':'Actual Text'})
 
             gen_dist=val.merge(temp_df,on=['Actual Text']).loc[:,['text','Generated Text','Num distractor']]
-
+            gen_dist=gen_dist.drop_duplicates()
             distractors=val.groupby(['text']).agg({ 'Actual Text': lambda x: list(x.str.split())}).reset_index()
 
             dist_compare=distractors.merge(gen_dist,on=['text'])
@@ -193,7 +186,7 @@ def train(epoch, tokenizer, model, device, loader, optimizer,writer,global_step,
     return global_step
 
 
-def validate(epoch, tokenizer, model, device, loader,writer):
+def validate(epoch, tokenizer, model, device, loader,writer,records_test):
 
     """
     Function to evaluate model for predictions
@@ -209,6 +202,7 @@ def validate(epoch, tokenizer, model, device, loader,writer):
             y = data['target_ids'].to(device, dtype = torch.long)
             ids = data['source_ids'].to(device, dtype = torch.long)
             mask = data['source_mask'].to(device, dtype = torch.long)
+            ## generate distractors
             generated_ids = model.generate(
               input_ids = ids,
               attention_mask = mask, 
@@ -228,14 +222,16 @@ def validate(epoch, tokenizer, model, device, loader,writer):
 
         temp_df = pd.DataFrame({'Generated Text':predictions,'Actual Text':actuals,'Num distractor':num_dist})
         temp_df=temp_df.drop_duplicates()
-        val=records.rename(columns={'distractor':'Actual Text'})
-
+        val=records_test.rename(columns={'distractor':'Actual Text'})
+        
         gen_dist=val.merge(temp_df,on=['Actual Text']).loc[:,['text','Generated Text','Num distractor']]
         gen_dist=gen_dist.drop_duplicates()
         distractors=val.groupby(['text']).agg({ 'Actual Text': lambda x: list(x.str.split())}).reset_index()
 
         dist_compare=distractors.merge(gen_dist,on=['text'])
+        dist_compare=dist_compare.drop_duplicates()
         dist_compare['Generated Text']=dist_compare['Generated Text'].str.split()
+        ## compute bleu scores
         dist_compare=dist_compare.assign(bleu1=dist_compare.apply(lambda x:sentence_bleu(x['Actual Text'],x['Generated Text'],weights=(1, 0, 0, 0),smoothing_function=SmoothingFunction().method1),axis=1))
         dist_compare=dist_compare.assign(bleu2=dist_compare.apply(lambda x:sentence_bleu(x['Actual Text'],x['Generated Text'],weights=(0, 1, 0, 0),smoothing_function=SmoothingFunction().method1),axis=1))
         dist_compare=dist_compare.assign(bleu3=dist_compare.apply(lambda x:sentence_bleu(x['Actual Text'],x['Generated Text'],weights=(0, 0, 1, 0),smoothing_function=SmoothingFunction().method1),axis=1))
@@ -262,6 +258,7 @@ def validate(epoch, tokenizer, model, device, loader,writer):
         writer.add_scalar("val/bleu/distractor_gen/bleu_4", bleu_4, global_step)
             
     return predictions, actuals
+
 
 
 def main(config):
