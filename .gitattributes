@@ -1,1 +1,3 @@
 notebooks/** linguistic-vendored
+*.ipynb -linguist-detectable
+
